@@ -304,7 +304,7 @@ class App(ctk.CTk):
         ).pack(anchor="w", padx=14, pady=(12, 4))
         ctk.CTkLabel(
             controls,
-            text="RT/LT throttle · LS steer · ↑↓←→ keys · B brake · L lights · Space neutral",
+            text="RT/LT throttle · LS steer · Y lights · ↑↓←→ keys · B brake · L lights · Space neutral",
             font=ctk.CTkFont(_F, 10),
             text_color=ON_SURFACE_DIM,
         ).pack(anchor="w", padx=14, pady=(0, 8))

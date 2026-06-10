@@ -2,18 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-
-@dataclass(frozen=True)
-class AxisMapping:
-    steer: int = 0
-    lt: int = 4
-    rt: int = 5
-
-
-XBOX_FORZA = AxisMapping()
-
 
 def apply_deadzone(value: float, deadzone: float = 0.12) -> float:
     if abs(value) < deadzone:
@@ -23,13 +11,28 @@ def apply_deadzone(value: float, deadzone: float = 0.12) -> float:
     return sign * min(max(scaled, 0.0), 1.0)
 
 
+def normalize_stick_abs(state: int) -> float:
+    """Map evdev/XInput stick absolute value to -1..+1."""
+
+    if -32768 <= state <= 32767 and abs(state) > 255:
+        return max(-1.0, min(1.0, state / 32768.0))
+    return max(-1.0, min(1.0, (state - 128) / 128.0))
+
+
+def normalize_trigger_abs(state: int) -> float:
+    """Map evdev/XInput trigger absolute value to 0..+1 (released → pressed)."""
+
+    if abs(state) > 255:
+        return min(max(state / 32767.0, 0.0), 1.0)
+    return min(max(state / 255.0, 0.0), 1.0)
+
+
 def normalize_trigger(axis_value: float, rest: float = -1.0) -> float:
     """Map trigger axis to 0.0 (released) … 1.0 (full press)."""
 
     if rest < 0:
-        # Xbox-style: rests at -1, pressed toward +1
+        # Xbox-style SDL: rests at -1, pressed toward +1
         return min(max((axis_value - rest) / (1.0 - rest), 0.0), 1.0)
-    # Some controllers rest at 0, pressed toward +1
     return min(max(axis_value, 0.0), 1.0)
 
 
@@ -86,34 +89,19 @@ def is_input_active(
     )
 
 
-def detect_trigger_axes(axis_values: list[float]) -> tuple[int, int] | None:
-    """Find a pair of trigger-like axes resting near -1 (axes 2–5)."""
-
-    candidates: list[tuple[int, float]] = []
-    for idx in range(2, min(len(axis_values), 6)):
-        val = axis_values[idx]
-        if val < -0.5:
-            candidates.append((idx, val))
-
-    if len(candidates) >= 2:
-        candidates.sort(key=lambda item: item[0])
-        return candidates[0][0], candidates[1][0]
-    return None
-
-
-def resolve_axis_mapping(num_axes: int, axis_values: list[float]) -> AxisMapping:
-    mapping = XBOX_FORZA
-    if num_axes > mapping.rt:
-        return mapping
-    detected = detect_trigger_axes(axis_values)
-    if detected is None:
-        return AxisMapping(steer=0, lt=2, rt=3 if num_axes > 3 else 2)
-    return AxisMapping(steer=0, lt=detected[0], rt=detected[1])
-
-
 def _run_self_tests() -> None:
     assert apply_deadzone(0.05) == 0.0
     assert apply_deadzone(0.5, deadzone=0.12) > 0
+
+    assert normalize_stick_abs(128) == 0.0
+    assert abs(normalize_stick_abs(32767) - 1.0) < 0.01
+    assert abs(normalize_stick_abs(-32768) + 1.0) < 0.01
+    assert normalize_stick_abs(0) == -1.0
+    assert normalize_stick_abs(255) > 0.99
+
+    assert normalize_trigger_abs(0) == 0.0
+    assert normalize_trigger_abs(255) == 1.0
+    assert abs(normalize_trigger_abs(32767) - 1.0) < 0.01
 
     assert normalize_trigger(-1.0) == 0.0
     assert normalize_trigger(1.0) == 1.0

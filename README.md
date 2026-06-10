@@ -41,6 +41,8 @@ Environment variables (optional):
 | `GAMEPAD_DEADZONE`            | `0.12`      | Stick/trigger deadzone (0.0–1.0)                                      |
 | `GAMEPAD_POLL_HZ`             | `40`        | Gamepad poll rate                                                     |
 | `GAMEPAD_SEND_MIN_INTERVAL_S` | `0.05`      | Min interval between serial `set_controls` from gamepad (~20 Hz)      |
+| `GAMEPAD_LIGHTS_BUTTON`       | `BTN_NORTH` | evdev key code for cycle-lights (Xbox **Y**)                          |
+| `GAMEPAD_LIGHTS_DEBOUNCE_S`   | `0.25`      | Min seconds between gamepad lights commands                           |
 
 Select a serial port in the GUI and click **Connect**. The bridge waits for the firmware `ready` event, reads `get_device_info` / `get_state`, then accepts commands.
 
@@ -54,10 +56,22 @@ Plug in an Xbox or similar controller (first device wins). Enable via the **Enab
 | **LT (left trigger)**  | Brake / above-CP (`throttle_level` `0…-max`)           |
 | **RT + LT**            | Net throttle `RT − LT` (accelerate, brake, or neutral) |
 | **Left stick X**       | Proportional steering                                  |
+| **Y**                  | `cycle_lights` (advance lights mode)                   |
 
-While sticks or triggers are beyond the deadzone, **keyboard throttle/steer inputs are ignored** so gamepad and keys do not fight. Keyboard still works for **L** (lights) and when the controller is at neutral.
+While sticks or triggers are beyond the deadzone, **keyboard throttle/steer inputs are ignored** so gamepad and keys do not fight. Keyboard still works for **L** (lights) and when the controller is at neutral. Gamepad **Y** works while driving.
 
-Linux: Xbox controllers work via the kernel `xpad` driver. Windows: XInput controllers work through SDL without extra drivers.
+Linux + Windows supported via the [`inputs`](https://pypi.org/project/inputs/) library (evdev / XInput). macOS gamepad is not supported — use keyboard or WebSocket.
+
+### Linux gamepad permissions
+
+The bridge reads `/dev/input/event*` for gamepad events. Your user must be in the `input` group:
+
+```bash
+sudo usermod -aG input $USER
+# log out and back in (or reboot)
+```
+
+Without this, the log shows a permission-denied error and the gamepad pill stays on **waiting**.
 
 ## Keyboard controls
 

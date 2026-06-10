@@ -2,66 +2,16 @@
 
 from __future__ import annotations
 
-import os
 import threading
 import time
 from typing import Any, Callable
 
-from config import (
-    GAMEPAD_DEADZONE,
-    GAMEPAD_ENABLED_DEFAULT,
-    GAMEPAD_POLL_HZ,
-    GAMEPAD_SEND_MIN_INTERVAL_S,
-)
-from gamepad_mapping import (
-    AxisMapping,
-    forza_steer_level,
-    forza_throttle_level,
-    is_input_active,
-    normalize_trigger,
-    resolve_axis_mapping,
-)
+from config import GAMEPAD_DEADZONE, GAMEPAD_POLL_HZ, GAMEPAD_SEND_MIN_INTERVAL_S
+from gamepad_backend import GamepadState, inputs_listener_loop
+from gamepad_mapping import forza_steer_level, forza_throttle_level, is_input_active
 
 LogFn = Callable[[str, str], None]
 EnqueueFn = Callable[[str, dict[str, Any]], None]
-
-
-def _init_pygame():
-    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
-    import pygame
-
-    if not pygame.get_init():
-        pygame.init()
-    if not pygame.joystick.get_init():
-        pygame.joystick.init()
-    return pygame
-
-
-def _read_axes(joystick: Any) -> list[float]:
-    return [float(joystick.get_axis(i)) for i in range(joystick.get_numaxes())]
-
-
-def _open_first_joystick(pygame: Any, log: LogFn) -> tuple[Any | None, AxisMapping | None]:
-    count = pygame.joystick.get_count()
-    if count <= 0:
-        return None, None
-
-    stick = pygame.joystick.Joystick(0)
-    stick.init()
-    axes = _read_axes(stick)
-    mapping = resolve_axis_mapping(stick.get_numaxes(), axes)
-    log("ok", f"Gamepad connected: {stick.get_name()}")
-    return stick, mapping
-
-
-def _close_joystick(pygame: Any, stick: Any | None) -> None:
-    if stick is not None:
-        try:
-            stick.quit()
-        except Exception:
-            pass
-    pygame.joystick.quit()
-    pygame.joystick.init()
 
 
 def _send_neutral(enqueue_command: EnqueueFn) -> None:
@@ -75,22 +25,31 @@ def gamepad_worker_loop(
     log: LogFn,
     stop_event: threading.Event,
 ) -> None:
-    pygame = _init_pygame()
     poll_interval = 1.0 / max(GAMEPAD_POLL_HZ, 1.0)
+    state = GamepadState()
 
-    stick: Any | None = None
-    mapping: AxisMapping | None = None
+    listener = threading.Thread(
+        target=inputs_listener_loop,
+        kwargs={
+            "runtime": runtime,
+            "state": state,
+            "enqueue_command": enqueue_command,
+            "log": log,
+            "stop_event": stop_event,
+        },
+        daemon=True,
+        name="gamepad-inputs-listener",
+    )
+    listener.start()
+
     last_sent_throttle: int | None = None
     last_sent_steer: int | None = None
     last_send_wall = 0.0
     was_active = False
+    prev_connected = False
 
-    def clear_stick_state(send_neutral: bool) -> None:
-        nonlocal stick, mapping, last_sent_throttle, last_sent_steer, was_active
-        if stick is not None:
-            _close_joystick(pygame, stick)
-        stick = None
-        mapping = None
+    def reset_send_state(send_neutral: bool) -> None:
+        nonlocal last_sent_throttle, last_sent_steer, was_active
         last_sent_throttle = None
         last_sent_steer = None
         with runtime.lock:
@@ -105,45 +64,33 @@ def gamepad_worker_loop(
         was_active = False
 
     while not stop_event.is_set():
-        for event in pygame.event.get():
-            if event.type == pygame.JOYDEVICEADDED and stick is None:
-                try:
-                    stick, mapping = _open_first_joystick(pygame, log)
-                    if stick is not None:
-                        with runtime.lock:
-                            runtime.ui.gamepad_connected = True
-                            runtime.ui.gamepad_name = stick.get_name()
-                except Exception as exc:
-                    log("warn", f"Gamepad open failed: {exc}")
-            elif event.type == pygame.JOYDEVICEREMOVED:
-                log("info", "Gamepad disconnected")
-                clear_stick_state(send_neutral=True)
-
         with runtime.lock:
             enabled = runtime.ui.gamepad_enabled
             serial_ok = runtime.ui.serial_connected
 
-        if stick is None and pygame.joystick.get_count() > 0:
-            try:
-                stick, mapping = _open_first_joystick(pygame, log)
-                if stick is not None:
-                    with runtime.lock:
-                        runtime.ui.gamepad_connected = True
-                        runtime.ui.gamepad_name = stick.get_name()
-            except Exception as exc:
-                log("warn", f"Gamepad open failed: {exc}")
+        with state.lock:
+            connected = state.connected
+            stick_x = state.stick_x
+            lt = state.lt
+            rt = state.rt
+            name = state.name
 
-        if stick is None or mapping is None or not enabled:
+        with runtime.lock:
+            runtime.ui.gamepad_connected = connected
+            runtime.ui.gamepad_name = name if connected else ""
+
+        if connected and not prev_connected:
+            last_sent_throttle = None
+            last_sent_steer = None
+
+        if prev_connected and not connected:
+            reset_send_state(send_neutral=True)
+
+        prev_connected = connected
+
+        if not enabled or not connected:
             stop_event.wait(poll_interval)
             continue
-
-        axes = _read_axes(stick)
-        steer_raw = axes[mapping.steer] if mapping.steer < len(axes) else 0.0
-        lt_raw = axes[mapping.lt] if mapping.lt < len(axes) else -1.0
-        rt_raw = axes[mapping.rt] if mapping.rt < len(axes) else -1.0
-
-        lt = normalize_trigger(lt_raw)
-        rt = normalize_trigger(rt_raw)
 
         with runtime.lock:
             bounds = runtime.bounds
@@ -157,12 +104,12 @@ def gamepad_worker_loop(
                 deadzone=GAMEPAD_DEADZONE,
             )
             steer = forza_steer_level(
-                steer_raw,
+                stick_x,
                 steer_min=bounds.steer_min,
                 steer_max=bounds.steer_max,
                 deadzone=GAMEPAD_DEADZONE,
             )
-            active = is_input_active(steer_raw, rt, lt, deadzone=GAMEPAD_DEADZONE)
+            active = is_input_active(stick_x, rt, lt, deadzone=GAMEPAD_DEADZONE)
             runtime.ui.gamepad_active = active
 
         if serial_ok:
@@ -181,8 +128,4 @@ def gamepad_worker_loop(
         was_active = active
         stop_event.wait(poll_interval)
 
-    clear_stick_state(send_neutral=True)
-    try:
-        pygame.quit()
-    except Exception:
-        pass
+    reset_send_state(send_neutral=True)
