@@ -37,6 +37,11 @@ Environment variables (optional):
 | `WS_HOST`                     | `127.0.0.1` | WebSocket bind host                                                   |
 | `WS_PORT`                     | `8801`      | WebSocket port (8801 avoids collision with mavlink bridge on 8800)    |
 | `MAX_FORWARD_LEVEL`           | *(empty)*   | Cap positive `throttle_level` for bench safety (empty = firmware max) |
+| `HARDWARE_DEADBAND_ENABLED`   | `1`         | Set `0` to disable RC receiver deadband remapping                     |
+| `THROTTLE_FORWARD_MIN`        | `23`        | First forward protocol level that moves the car                       |
+| `THROTTLE_REVERSE_MIN`        | `29`        | Magnitude of first reverse/brake-zone level that moves the car        |
+| `STEER_LEFT_MIN`              | `30`        | Magnitude of first left steer level that turns the wheels             |
+| `STEER_RIGHT_MIN`             | `30`        | Magnitude of first right steer level that turns the wheels            |
 | `GAMEPAD_ENABLED`             | `1`         | Set `0` to disable gamepad polling at startup                         |
 | `GAMEPAD_DEADZONE`            | `0.12`      | Stick/trigger deadzone (0.0–1.0)                                      |
 | `GAMEPAD_POLL_HZ`             | `40`        | Gamepad poll rate                                                     |
@@ -47,6 +52,10 @@ Environment variables (optional):
 | `GAMEPAD_LIGHTS_DEBOUNCE_S`   | `0.25`      | Min seconds between gamepad lights commands                           |
 
 Select a serial port in the GUI and click **Connect**. The bridge waits for the firmware `ready` event, reads `get_device_info` / `get_state`, then accepts commands.
+
+### Hardware deadband vs gamepad deadzone
+
+`GAMEPAD_DEADZONE` filters noisy stick/trigger input **before** integer level mapping (input-side). The `THROTTLE_*_MIN` and `STEER_*_MIN` variables compensate for the RC receiver’s physical deadband **after** mapping: low raw levels are expanded so the first movement happens at the configured protocol level. Tune with keyboard ↑/↓/←/→ while watching the THROTTLE/STEER stat cards, then set env vars without code changes. Set `HARDWARE_DEADBAND_ENABLED=0` to restore linear 1:1 level mapping.
 
 ## Gamepad controls (Forza-style)
 
@@ -79,15 +88,15 @@ Without this, the log shows a permission-denied error and the gamepad pill stays
 
 Focus the bridge window, then:
 
-| Key       | Action                                                                |
-| --------- | --------------------------------------------------------------------- |
-| **Up**    | `throttle_level += 1`                                                 |
-| **Down**  | `throttle_level -= 1` (full signed range; `0 → -1` enters brake zone) |
-| **Left**  | `steer_level -= 1`                                                    |
-| **Right** | `steer_level += 1`                                                    |
-| **B**     | Brake (`throttle_level: -1`; steer unchanged)                         |
-| **L**     | `cycle_lights` (advance local mode label)                             |
-| **Space** | Neutral throttle and steer (`0`, `0`)                                 |
+| Key       | Action                                                                                      |
+| --------- | ------------------------------------------------------------------------------------------- |
+| **Up**    | Increase throttle (from neutral jumps to `THROTTLE_FORWARD_MIN`, default +23)               |
+| **Down**  | Decrease throttle (from neutral jumps to `-THROTTLE_REVERSE_MIN`, default −29)              |
+| **Left**  | Steer left (from center jumps to `-STEER_LEFT_MIN`, default −30)                            |
+| **Right** | Steer right (from center jumps to `STEER_RIGHT_MIN`, default +30)                           |
+| **B**     | Brake / reverse zone entry (raw `-1` remapped to `-THROTTLE_REVERSE_MIN`; steer unchanged)   |
+| **L**     | `cycle_lights` (advance local mode label)                                                   |
+| **Space** | Neutral throttle and steer (`0`, `0`)                                                       |
 
 Disconnect or close the app sends neutral before closing the serial port.
 
@@ -104,7 +113,7 @@ Disconnect or close the app sends neutral before closing the serial port.
 { "type": "command", "command": "steer_step", "params": { "delta": -1 } }
 ```
 
-`throttle_step` / `steer_step` are bridge-only helpers (apply delta, clamp to firmware bounds).
+`throttle_step` / `steer_step` are bridge-only helpers (threshold-aware delta in protocol space; clamp to firmware bounds). `set_controls` accepts raw intent levels and applies hardware deadband remapping before serial output.
 
 **Bridge → client (status):**
 

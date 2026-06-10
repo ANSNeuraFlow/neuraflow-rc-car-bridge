@@ -4,23 +4,48 @@ from __future__ import annotations
 
 from typing import Any
 
-from config import LIGHTS_MODES
+from config import LIGHTS_MODES, load_hardware_deadband
+from level_calibration import (
+    calibrate_steer_level,
+    calibrate_throttle_level,
+    step_steer_level,
+    step_throttle_level,
+)
 from serial_protocol import SerialSession
 
 
-def _clamp_throttle(runtime, level: int) -> int:
+def _throttle_limits(runtime) -> tuple[int, int, int | None]:
     with runtime.lock:
         bounds = runtime.bounds
         max_fwd = bounds.throttle_forward_max
-        if runtime.max_forward_level is not None:
-            max_fwd = min(max_fwd, int(runtime.max_forward_level))
+        max_forward_cap = runtime.max_forward_level
+        if max_forward_cap is not None:
+            max_fwd = min(max_fwd, int(max_forward_cap))
         min_level = -bounds.throttle_above_max
+    return max_fwd, min_level, max_forward_cap
+
+
+def _clamp_throttle(runtime, level: int, *, calibrate: bool = True) -> int:
+    deadband = load_hardware_deadband()
+    max_fwd, min_level, max_forward_cap = _throttle_limits(runtime)
+    with runtime.lock:
+        bounds = runtime.bounds
+    if calibrate:
+        level = calibrate_throttle_level(
+            level,
+            bounds,
+            deadband,
+            max_forward_cap=max_forward_cap,
+        )
     return max(min_level, min(max_fwd, int(level)))
 
 
-def _clamp_steer(runtime, level: int) -> int:
+def _clamp_steer(runtime, level: int, *, calibrate: bool = True) -> int:
+    deadband = load_hardware_deadband()
     with runtime.lock:
         bounds = runtime.bounds
+    if calibrate:
+        level = calibrate_steer_level(level, bounds, deadband)
     return max(bounds.steer_min, min(bounds.steer_max, int(level)))
 
 
@@ -70,8 +95,18 @@ def apply_frontend_command(
 
     if name == "throttle_step":
         delta = int(params.get("delta", 0))
+        deadband = load_hardware_deadband()
         with runtime.lock:
-            new_level = _clamp_throttle(runtime, runtime.throttle_level + delta)
+            bounds = runtime.bounds
+            max_forward_cap = runtime.max_forward_level
+            current = runtime.throttle_level
+        new_level = step_throttle_level(
+            current,
+            delta,
+            bounds,
+            deadband,
+            max_forward_cap=max_forward_cap,
+        )
         return apply_frontend_command(
             runtime=runtime,
             command="set_controls",
@@ -83,8 +118,11 @@ def apply_frontend_command(
 
     if name == "steer_step":
         delta = int(params.get("delta", 0))
+        deadband = load_hardware_deadband()
         with runtime.lock:
-            new_level = _clamp_steer(runtime, runtime.steer_level + delta)
+            bounds = runtime.bounds
+            current = runtime.steer_level
+        new_level = step_steer_level(current, delta, bounds, deadband)
         return apply_frontend_command(
             runtime=runtime,
             command="set_controls",

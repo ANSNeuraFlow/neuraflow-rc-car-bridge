@@ -28,7 +28,29 @@ GAMEPAD_STEER_SEND_STEP = int(os.environ.get("GAMEPAD_STEER_SEND_STEP", "2"))
 GAMEPAD_LIGHTS_BUTTON = os.environ.get("GAMEPAD_LIGHTS_BUTTON", "BTN_NORTH").strip()
 GAMEPAD_LIGHTS_DEBOUNCE_S = float(os.environ.get("GAMEPAD_LIGHTS_DEBOUNCE_S", "0.25"))
 
+HARDWARE_DEADBAND_ENABLED = os.environ.get("HARDWARE_DEADBAND_ENABLED", "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+)
+THROTTLE_FORWARD_MIN = int(os.environ.get("THROTTLE_FORWARD_MIN", "23"))
+THROTTLE_REVERSE_MIN = int(os.environ.get("THROTTLE_REVERSE_MIN", "29"))
+STEER_LEFT_MIN = int(os.environ.get("STEER_LEFT_MIN", "30"))
+STEER_RIGHT_MIN = int(os.environ.get("STEER_RIGHT_MIN", "30"))
+
 LIGHTS_MODES = ("off", "steady", "slow_blink", "fast_blink")
+
+
+def load_hardware_deadband():
+    from level_calibration import HardwareDeadband
+
+    return HardwareDeadband(
+        enabled=HARDWARE_DEADBAND_ENABLED,
+        throttle_forward_min=THROTTLE_FORWARD_MIN,
+        throttle_reverse_min=THROTTLE_REVERSE_MIN,
+        steer_left_min=STEER_LEFT_MIN,
+        steer_right_min=STEER_RIGHT_MIN,
+    )
 
 # Visual design (neuraflow-local-bridge / mavlink-bridge)
 
