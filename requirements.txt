@@ -1,0 +1,4 @@
+customtkinter>=5.2.2
+pygame>=2.5.0
+pyserial>=3.5
+websockets>=16.0

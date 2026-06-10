@@ -1,0 +1,12 @@
+[project]
+name = "neuraflow-rc-car-bridge"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "customtkinter>=5.2.2",
+    "pygame>=2.5.0",
+    "pyserial>=3.5",
+    "websockets>=16.0",
+]
