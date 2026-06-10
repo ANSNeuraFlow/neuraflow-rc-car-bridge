@@ -6,9 +6,21 @@ import threading
 import time
 from typing import Any, Callable
 
-from config import GAMEPAD_DEADZONE, GAMEPAD_POLL_HZ, GAMEPAD_SEND_MIN_INTERVAL_S
+from config import (
+    GAMEPAD_DEADZONE,
+    GAMEPAD_POLL_HZ,
+    GAMEPAD_SEND_MIN_INTERVAL_S,
+    GAMEPAD_STEER_SEND_STEP,
+    GAMEPAD_STEER_SMOOTH_ALPHA,
+)
 from gamepad_backend import GamepadState, inputs_listener_loop
-from gamepad_mapping import forza_steer_level, forza_throttle_level, is_input_active
+from gamepad_mapping import (
+    forza_steer_level,
+    forza_throttle_level,
+    is_input_active,
+    should_send_steer_level,
+    smooth_value,
+)
 
 LogFn = Callable[[str, str], None]
 EnqueueFn = Callable[[str, dict[str, Any]], None]
@@ -47,11 +59,13 @@ def gamepad_worker_loop(
     last_send_wall = 0.0
     was_active = False
     prev_connected = False
+    smooth_stick_x = 0.0
 
     def reset_send_state(send_neutral: bool) -> None:
-        nonlocal last_sent_throttle, last_sent_steer, was_active
+        nonlocal last_sent_throttle, last_sent_steer, was_active, smooth_stick_x
         last_sent_throttle = None
         last_sent_steer = None
+        smooth_stick_x = 0.0
         with runtime.lock:
             runtime.ui.gamepad_connected = False
             runtime.ui.gamepad_name = ""
@@ -82,6 +96,7 @@ def gamepad_worker_loop(
         if connected and not prev_connected:
             last_sent_throttle = None
             last_sent_steer = None
+            smooth_stick_x = stick_x
 
         if prev_connected and not connected:
             reset_send_state(send_neutral=True)
@@ -91,6 +106,8 @@ def gamepad_worker_loop(
         if not enabled or not connected:
             stop_event.wait(poll_interval)
             continue
+
+        smooth_stick_x = smooth_value(smooth_stick_x, stick_x, GAMEPAD_STEER_SMOOTH_ALPHA)
 
         with runtime.lock:
             bounds = runtime.bounds
@@ -104,19 +121,24 @@ def gamepad_worker_loop(
                 deadzone=GAMEPAD_DEADZONE,
             )
             steer = forza_steer_level(
-                stick_x,
+                smooth_stick_x,
                 steer_min=bounds.steer_min,
                 steer_max=bounds.steer_max,
                 deadzone=GAMEPAD_DEADZONE,
             )
-            active = is_input_active(stick_x, rt, lt, deadzone=GAMEPAD_DEADZONE)
+            active = is_input_active(smooth_stick_x, rt, lt, deadzone=GAMEPAD_DEADZONE)
             runtime.ui.gamepad_active = active
 
         if serial_ok:
             now = time.monotonic()
-            changed = throttle != last_sent_throttle or steer != last_sent_steer
+            throttle_changed = throttle != last_sent_throttle
+            steer_changed = should_send_steer_level(
+                steer,
+                last_sent_steer,
+                min_step=GAMEPAD_STEER_SEND_STEP,
+            )
             due = (now - last_send_wall) >= GAMEPAD_SEND_MIN_INTERVAL_S
-            if changed and due:
+            if (throttle_changed or steer_changed) and due:
                 enqueue_command(
                     "set_controls",
                     {"throttle_level": throttle, "steer_level": steer},

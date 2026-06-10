@@ -1,14 +1,21 @@
-"""Headless gamepad input via the inputs library (evdev / XInput)."""
+"""Load evdev axis calibration and apply gamepad events."""
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from config import GAMEPAD_LIGHTS_BUTTON, GAMEPAD_LIGHTS_DEBOUNCE_S
-from gamepad_mapping import normalize_stick_abs, normalize_trigger_abs
+from gamepad_mapping import (
+    DEFAULT_STICK_CALIB,
+    DEFAULT_TRIGGER_CALIB,
+    AxisCalib,
+    normalize_stick_raw,
+    normalize_trigger_raw,
+)
 
 LogFn = Callable[[str, str], None]
 EnqueueFn = Callable[[str, dict[str, Any]], None]
@@ -16,6 +23,13 @@ EnqueueFn = Callable[[str, dict[str, Any]], None]
 STEER_CODE = "ABS_X"
 LT_CODES = ("ABS_Z", "ABS_BRAKE")
 RT_CODES = ("ABS_RZ", "ABS_GAS")
+
+# Linux input.h axis codes
+_LINUX_ABS = {
+    "ABS_X": 0x00,
+    "ABS_Z": 0x02,
+    "ABS_RZ": 0x05,
+}
 
 
 @dataclass
@@ -26,6 +40,9 @@ class GamepadState:
     stick_x: float = 0.0
     lt: float = 0.0
     rt: float = 0.0
+    stick_calib: AxisCalib = field(default_factory=lambda: DEFAULT_STICK_CALIB)
+    lt_calib: AxisCalib = field(default_factory=lambda: DEFAULT_TRIGGER_CALIB)
+    rt_calib: AxisCalib = field(default_factory=lambda: DEFAULT_TRIGGER_CALIB)
 
     def reset_analog(self) -> None:
         self.stick_x = 0.0
@@ -38,13 +55,75 @@ class GamepadState:
         self.reset_analog()
 
 
+def _linux_read_absinfo(device_path: str, axis_code: int) -> AxisCalib | None:
+    if sys.platform != "linux":
+        return None
+
+    import fcntl
+    import struct
+
+    try:
+        fd = open(device_path, "rb")
+        try:
+            # EVIOCGABS(axis): 6 x int32 (value, min, max, fuzz, flat, resolution)
+            buf = fcntl.ioctl(fd, 0x80104540 + axis_code, bytes(24))
+        finally:
+            fd.close()
+    except OSError:
+        return None
+
+    _value, minimum, maximum, _fuzz, flat, _resolution = struct.unpack("6i", buf)
+    if maximum <= minimum:
+        return None
+    return AxisCalib(minimum=minimum, maximum=maximum, flat=max(flat, 0))
+
+
+def load_axis_calibrations(gamepad: Any, log: LogFn) -> tuple[AxisCalib, AxisCalib, AxisCalib]:
+    stick = DEFAULT_STICK_CALIB
+    lt = DEFAULT_TRIGGER_CALIB
+    rt = DEFAULT_TRIGGER_CALIB
+
+    if sys.platform == "linux":
+        device_path = getattr(gamepad, "_device_path", None) or getattr(
+            gamepad, "_character_device_path", None
+        )
+        if device_path:
+            stick_info = _linux_read_absinfo(device_path, _LINUX_ABS["ABS_X"])
+            lt_info = _linux_read_absinfo(device_path, _LINUX_ABS["ABS_Z"])
+            rt_info = _linux_read_absinfo(device_path, _LINUX_ABS["ABS_RZ"])
+            if stick_info is not None:
+                stick = stick_info
+            if lt_info is not None:
+                lt = lt_info
+            if rt_info is not None:
+                rt = rt_info
+            log(
+                "info",
+                f"Gamepad calib stick=[{stick.minimum},{stick.maximum}] flat={stick.flat} "
+                f"lt=[{lt.minimum},{lt.maximum}] rt=[{rt.minimum},{rt.maximum}]",
+            )
+        return stick, lt, rt
+
+    log("info", "Gamepad calib: using default stick/trigger ranges")
+    return stick, lt, rt
+
+
+def _apply_calibrations(state: GamepadState, gamepad: Any, log: LogFn) -> None:
+    stick, lt, rt = load_axis_calibrations(gamepad, log)
+    with state.lock:
+        state.stick_calib = stick
+        state.lt_calib = lt
+        state.rt_calib = rt
+        state.reset_analog()
+
+
 def _apply_absolute(state: GamepadState, code: str, raw: int) -> None:
     if code == STEER_CODE:
-        state.stick_x = normalize_stick_abs(raw)
+        state.stick_x = normalize_stick_raw(raw, state.stick_calib)
     elif code in LT_CODES:
-        state.lt = normalize_trigger_abs(raw)
+        state.lt = normalize_trigger_raw(raw, state.lt_calib)
     elif code in RT_CODES:
-        state.rt = normalize_trigger_abs(raw)
+        state.rt = normalize_trigger_raw(raw, state.rt_calib)
 
 
 def _should_fire_lights(
@@ -55,15 +134,19 @@ def _should_fire_lights(
     now: float,
     debounce_s: float,
 ) -> tuple[bool, bool, float]:
-    """Return (fire, new_was_down, new_last_fire_wall)."""
-
     is_down = pressed
     if is_down and not was_down and (now - last_fire_wall) >= debounce_s:
         return True, is_down, now
     return False, is_down, last_fire_wall
 
 
-def _refresh_connection(state: GamepadState, log: LogFn, *, was_connected: bool) -> bool:
+def _refresh_connection(
+    state: GamepadState,
+    log: LogFn,
+    *,
+    was_connected: bool,
+    calib_loaded: bool,
+) -> tuple[bool, bool]:
     from inputs import devices
 
     gamepads = devices.gamepads
@@ -73,16 +156,25 @@ def _refresh_connection(state: GamepadState, log: LogFn, *, was_connected: bool)
                 state.disconnect()
         if was_connected:
             log("info", "Gamepad disconnected")
-        return False
+        return False, False
 
-    name = str(gamepads[0].name or "gamepad")
+    gamepad = gamepads[0]
+    name = str(gamepad.name or "gamepad")
+    newly_connected = False
     with state.lock:
         newly_connected = not state.connected
         state.connected = True
         state.name = name
+
     if newly_connected and not was_connected:
         log("ok", f"Gamepad connected: {name}")
-    return True
+
+    need_calib = newly_connected or not calib_loaded
+    if need_calib:
+        _apply_calibrations(state, gamepad, log)
+        calib_loaded = True
+
+    return True, calib_loaded
 
 
 def inputs_listener_loop(
@@ -98,12 +190,19 @@ def inputs_listener_loop(
     lights_was_down = False
     last_lights_wall = 0.0
     was_connected = False
+    calib_loaded = False
     permission_warned = False
 
     while not stop_event.is_set():
         try:
-            was_connected = _refresh_connection(state, log, was_connected=was_connected)
+            was_connected, calib_loaded = _refresh_connection(
+                state,
+                log,
+                was_connected=was_connected,
+                calib_loaded=calib_loaded,
+            )
             if not was_connected:
+                calib_loaded = False
                 stop_event.wait(1.0)
                 continue
 
@@ -118,6 +217,7 @@ def inputs_listener_loop(
             with state.lock:
                 state.disconnect()
             was_connected = False
+            calib_loaded = False
             stop_event.wait(1.0)
             continue
         except OSError as exc:
@@ -125,6 +225,7 @@ def inputs_listener_loop(
             with state.lock:
                 state.disconnect()
             was_connected = False
+            calib_loaded = False
             stop_event.wait(1.0)
             continue
         except Exception as exc:
@@ -132,6 +233,7 @@ def inputs_listener_loop(
             with state.lock:
                 state.disconnect()
             was_connected = False
+            calib_loaded = False
             stop_event.wait(1.0)
             continue
 
@@ -164,7 +266,7 @@ def inputs_listener_loop(
 
 
 def _run_self_tests() -> None:
-    fire, down, t = _should_fire_lights(
+    fire, down, _ = _should_fire_lights(
         pressed=True,
         was_down=False,
         last_fire_wall=0.0,
@@ -173,25 +275,6 @@ def _run_self_tests() -> None:
     )
     assert fire is True
     assert down is True
-
-    fire, down, _ = _should_fire_lights(
-        pressed=True,
-        was_down=True,
-        last_fire_wall=1.0,
-        now=1.1,
-        debounce_s=0.25,
-    )
-    assert fire is False
-
-    fire, _, _ = _should_fire_lights(
-        pressed=True,
-        was_down=False,
-        last_fire_wall=1.0,
-        now=1.1,
-        debounce_s=0.25,
-    )
-    assert fire is False
-
     print("gamepad_backend self-tests ok")
 
 

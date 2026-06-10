@@ -23,6 +23,8 @@ GAMEPAD_ENABLED_DEFAULT = os.environ.get("GAMEPAD_ENABLED", "1").strip().lower()
 GAMEPAD_POLL_HZ = float(os.environ.get("GAMEPAD_POLL_HZ", "40"))
 GAMEPAD_DEADZONE = float(os.environ.get("GAMEPAD_DEADZONE", "0.12"))
 GAMEPAD_SEND_MIN_INTERVAL_S = float(os.environ.get("GAMEPAD_SEND_MIN_INTERVAL_S", "0.05"))
+GAMEPAD_STEER_SMOOTH_ALPHA = float(os.environ.get("GAMEPAD_STEER_SMOOTH_ALPHA", "0.35"))
+GAMEPAD_STEER_SEND_STEP = int(os.environ.get("GAMEPAD_STEER_SEND_STEP", "2"))
 GAMEPAD_LIGHTS_BUTTON = os.environ.get("GAMEPAD_LIGHTS_BUTTON", "BTN_NORTH").strip()
 GAMEPAD_LIGHTS_DEBOUNCE_S = float(os.environ.get("GAMEPAD_LIGHTS_DEBOUNCE_S", "0.25"))
 

@@ -41,6 +41,8 @@ Environment variables (optional):
 | `GAMEPAD_DEADZONE`            | `0.12`      | Stick/trigger deadzone (0.0–1.0)                                      |
 | `GAMEPAD_POLL_HZ`             | `40`        | Gamepad poll rate                                                     |
 | `GAMEPAD_SEND_MIN_INTERVAL_S` | `0.05`      | Min interval between serial `set_controls` from gamepad (~20 Hz)      |
+| `GAMEPAD_STEER_SMOOTH_ALPHA`  | `0.35`      | Stick smoothing (0 = frozen, 1 = raw; higher = more responsive)     |
+| `GAMEPAD_STEER_SEND_STEP`     | `2`         | Min steer level change before sending (reduces jitter)                |
 | `GAMEPAD_LIGHTS_BUTTON`       | `BTN_NORTH` | evdev key code for cycle-lights (Xbox **Y**)                          |
 | `GAMEPAD_LIGHTS_DEBOUNCE_S`   | `0.25`      | Min seconds between gamepad lights commands                           |
 
