@@ -8,7 +8,13 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from config import GAMEPAD_LIGHTS_BUTTON, GAMEPAD_LIGHTS_DEBOUNCE_S, GAMEPAD_MACRO_DEBOUNCE_S
+from config import (
+    GAMEPAD_LIGHTS_BUTTON,
+    GAMEPAD_LIGHTS_DEBOUNCE_S,
+    GAMEPAD_MACRO_DEBOUNCE_S,
+    GAMEPAD_NEUTRAL_BUTTON,
+    GAMEPAD_NEUTRAL_DEBOUNCE_S,
+)
 from movement_timelines import event_code_to_binding
 from gamepad_mapping import (
     DEFAULT_STICK_CALIB,
@@ -216,6 +222,8 @@ def inputs_listener_loop(
 
     lights_was_down = False
     last_lights_wall = 0.0
+    neutral_was_down = False
+    last_neutral_wall = 0.0
     last_macro_wall = 0.0
     last_hat_x = 0
     last_hat_y = 0
@@ -300,7 +308,7 @@ def inputs_listener_loop(
             now = time.monotonic()
 
             binding_code = event_code_to_binding(event.code)
-            if binding_code is not None:
+            if binding_code is not None and event.code != GAMEPAD_NEUTRAL_BUTTON:
                 was_down = button_was_down.get(event.code, False)
                 fire, button_was_down[event.code], _ = _should_fire_lights(
                     pressed=bool(event.state),
@@ -318,6 +326,24 @@ def inputs_listener_loop(
                     )
                     if last_macro_wall != prev_wall:
                         continue
+
+            if event.code == GAMEPAD_NEUTRAL_BUTTON:
+                fire, neutral_was_down, last_neutral_wall = _should_fire_lights(
+                    pressed=bool(event.state),
+                    was_down=neutral_was_down,
+                    last_fire_wall=last_neutral_wall,
+                    now=now,
+                    debounce_s=GAMEPAD_NEUTRAL_DEBOUNCE_S,
+                )
+                if fire:
+                    with runtime.lock:
+                        serial_ok = runtime.ui.serial_connected
+                    if serial_ok:
+                        from movement_runner import notify_manual_control
+
+                        notify_manual_control("gamepad")
+                        enqueue_command("neutral", {})
+                continue
 
             if event.code != GAMEPAD_LIGHTS_BUTTON:
                 continue

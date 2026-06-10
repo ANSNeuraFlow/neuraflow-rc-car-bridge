@@ -50,6 +50,8 @@ Environment variables (optional):
 | `GAMEPAD_STEER_SEND_STEP`     | `2`         | Min steer level change before sending (reduces jitter)                |
 | `GAMEPAD_LIGHTS_BUTTON`       | `BTN_NORTH` | evdev key code for cycle-lights (Xbox **Y**)                          |
 | `GAMEPAD_LIGHTS_DEBOUNCE_S`   | `0.25`      | Min seconds between gamepad lights commands                           |
+| `GAMEPAD_NEUTRAL_BUTTON`      | `BTN_EAST`  | evdev key code for center actuators / neutral (Xbox **B**)            |
+| `GAMEPAD_NEUTRAL_DEBOUNCE_S`  | `0.25`      | Min seconds between gamepad neutral commands                          |
 | `GAMEPAD_MACRO_DEBOUNCE_S`    | `0.25`      | Min seconds between gamepad D-pad movement triggers                   |
 | `MOVEMENTS_CONFIG`            | `movements.yaml` (next to app) | YAML/JSON file defining movement timelines and bindings      |
 
@@ -70,8 +72,9 @@ Plug in an Xbox or similar controller (first device wins). Enable via the **Enab
 | **RT + LT**            | Net throttle `RT − LT` (accelerate, brake, or neutral) |
 | **Left stick X**       | Proportional steering                                  |
 | **Y**                  | `cycle_lights` (advance lights mode)                   |
+| **B**                  | `neutral` (center throttle and steer, like **Space**)  |
 
-While sticks or triggers are beyond the deadzone, **keyboard throttle/steer inputs are ignored** so gamepad and keys do not fight. Keyboard still works for **L** (lights) and when the controller is at neutral. Gamepad **Y** works while driving.
+While sticks or triggers are beyond the deadzone, **keyboard throttle/steer inputs are ignored** so gamepad and keys do not fight. Keyboard still works for **L** (lights) and when the controller is at neutral. Gamepad **Y** and **B** work while driving.
 
 Linux + Windows supported via the [`inputs`](https://pypi.org/project/inputs/) library (evdev / XInput). macOS gamepad is not supported — use keyboard or WebSocket.
 

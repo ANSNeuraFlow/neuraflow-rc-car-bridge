@@ -32,6 +32,8 @@ GAMEPAD_STEER_SMOOTH_ALPHA = float(os.environ.get("GAMEPAD_STEER_SMOOTH_ALPHA", 
 GAMEPAD_STEER_SEND_STEP = int(os.environ.get("GAMEPAD_STEER_SEND_STEP", "2"))
 GAMEPAD_LIGHTS_BUTTON = os.environ.get("GAMEPAD_LIGHTS_BUTTON", "BTN_NORTH").strip()
 GAMEPAD_LIGHTS_DEBOUNCE_S = float(os.environ.get("GAMEPAD_LIGHTS_DEBOUNCE_S", "0.25"))
+GAMEPAD_NEUTRAL_BUTTON = os.environ.get("GAMEPAD_NEUTRAL_BUTTON", "BTN_EAST").strip()
+GAMEPAD_NEUTRAL_DEBOUNCE_S = float(os.environ.get("GAMEPAD_NEUTRAL_DEBOUNCE_S", "0.25"))
 GAMEPAD_MACRO_DEBOUNCE_S = float(os.environ.get("GAMEPAD_MACRO_DEBOUNCE_S", "0.25"))
 
 _MOVEMENTS_CONFIG_RAW = os.environ.get("MOVEMENTS_CONFIG", "").strip()
@@ -46,7 +48,7 @@ HARDWARE_DEADBAND_ENABLED = os.environ.get(
     "false",
     "no",
 )
-THROTTLE_FORWARD_MIN = int(os.environ.get("THROTTLE_FORWARD_MIN", "23"))
+THROTTLE_FORWARD_MIN = int(os.environ.get("THROTTLE_FORWARD_MIN", "18"))
 THROTTLE_REVERSE_MIN = int(os.environ.get("THROTTLE_REVERSE_MIN", "29"))
 STEER_LEFT_MIN = int(os.environ.get("STEER_LEFT_MIN", "30"))
 STEER_RIGHT_MIN = int(os.environ.get("STEER_RIGHT_MIN", "30"))

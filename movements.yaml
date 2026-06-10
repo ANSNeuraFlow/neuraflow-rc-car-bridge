@@ -89,4 +89,3 @@ movements:
     bindings:
       gui: true
       keyboard: "Key-0"
-      gamepad: "B"
