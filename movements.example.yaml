@@ -1,0 +1,27 @@
+# Copy to movements.yaml (or set MOVEMENTS_CONFIG) to enable movement macros.
+# Click Reload (↻) in the MOVEMENTS panel after editing bindings or steps.
+#
+# Gamepad bindings: DPAD_UP/DOWN/LEFT/RIGHT, A/B/X/Y, LB/RB
+
+movements:
+  turn_and_brief_throttle:
+    label: "Turn & Brief Throttle"
+    steps:
+      - steer: max_right
+      - wait_ms: 100
+      - throttle: 1
+      - wait_ms: 500
+      - throttle: 0
+    bindings:
+      gui: true
+      keyboard: "Key-1"
+      gamepad: "DPAD_RIGHT"
+
+  emergency_stop:
+    label: "Stop"
+    steps:
+      - neutral
+    bindings:
+      gui: true
+      keyboard: "Key-0"
+      gamepad: "DPAD_DOWN"

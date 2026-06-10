@@ -14,6 +14,7 @@ from config import (
     GAMEPAD_STEER_SMOOTH_ALPHA,
 )
 from gamepad_backend import GamepadState, inputs_listener_loop
+from movement_runner import notify_manual_control
 from gamepad_mapping import (
     forza_steer_level,
     forza_throttle_level,
@@ -139,6 +140,7 @@ def gamepad_worker_loop(
             )
             due = (now - last_send_wall) >= GAMEPAD_SEND_MIN_INTERVAL_S
             if (throttle_changed or steer_changed) and due:
+                notify_manual_control("gamepad")
                 enqueue_command(
                     "set_controls",
                     {"throttle_level": throttle, "steer_level": steer},

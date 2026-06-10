@@ -56,6 +56,7 @@ async def websocket_main(
     outbound_messages: queue.Queue,
     stop_event: threading.Event,
     log: LogFn,
+    movements_snapshot_fn: Callable[[], list[dict[str, str]]] | None = None,
 ) -> None:
     clients: set[Any] = set()
     runtime.ui.ws_running = True
@@ -64,7 +65,10 @@ async def websocket_main(
         clients.add(ws)
         with runtime.lock:
             runtime.ui.ws_clients = len(clients)
-        await multicast(clients, {"type": "hello", "timestamp": int(time.time() * 1000)})
+        hello_pkt: dict[str, Any] = {"type": "hello", "timestamp": int(time.time() * 1000)}
+        if movements_snapshot_fn is not None:
+            hello_pkt["movements"] = movements_snapshot_fn()
+        await multicast(clients, hello_pkt)
         try:
             async for raw_message in ws:
                 try:

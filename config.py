@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 SERIAL_PORT = os.environ.get("SERIAL_PORT", "").strip()
 SERIAL_BAUD = int(os.environ.get("SERIAL_BAUD", "115200"))
@@ -15,20 +16,32 @@ MAX_FORWARD_LEVEL: int | None = int(_max_forward_raw) if _max_forward_raw else N
 STATUS_BROADCAST_HZ = 5.0
 HEARTBEAT_INTERVAL_S = 30.0
 
-GAMEPAD_ENABLED_DEFAULT = os.environ.get("GAMEPAD_ENABLED", "1").strip().lower() not in (
+GAMEPAD_ENABLED_DEFAULT = os.environ.get(
+    "GAMEPAD_ENABLED", "1"
+).strip().lower() not in (
     "0",
     "false",
     "no",
 )
 GAMEPAD_POLL_HZ = float(os.environ.get("GAMEPAD_POLL_HZ", "40"))
 GAMEPAD_DEADZONE = float(os.environ.get("GAMEPAD_DEADZONE", "0.12"))
-GAMEPAD_SEND_MIN_INTERVAL_S = float(os.environ.get("GAMEPAD_SEND_MIN_INTERVAL_S", "0.05"))
+GAMEPAD_SEND_MIN_INTERVAL_S = float(
+    os.environ.get("GAMEPAD_SEND_MIN_INTERVAL_S", "0.05")
+)
 GAMEPAD_STEER_SMOOTH_ALPHA = float(os.environ.get("GAMEPAD_STEER_SMOOTH_ALPHA", "0.35"))
 GAMEPAD_STEER_SEND_STEP = int(os.environ.get("GAMEPAD_STEER_SEND_STEP", "2"))
 GAMEPAD_LIGHTS_BUTTON = os.environ.get("GAMEPAD_LIGHTS_BUTTON", "BTN_NORTH").strip()
 GAMEPAD_LIGHTS_DEBOUNCE_S = float(os.environ.get("GAMEPAD_LIGHTS_DEBOUNCE_S", "0.25"))
+GAMEPAD_MACRO_DEBOUNCE_S = float(os.environ.get("GAMEPAD_MACRO_DEBOUNCE_S", "0.25"))
 
-HARDWARE_DEADBAND_ENABLED = os.environ.get("HARDWARE_DEADBAND_ENABLED", "1").strip().lower() not in (
+_MOVEMENTS_CONFIG_RAW = os.environ.get("MOVEMENTS_CONFIG", "").strip()
+MOVEMENTS_CONFIG = _MOVEMENTS_CONFIG_RAW or str(
+    Path(__file__).resolve().parent / "movements.yaml"
+)
+
+HARDWARE_DEADBAND_ENABLED = os.environ.get(
+    "HARDWARE_DEADBAND_ENABLED", "1"
+).strip().lower() not in (
     "0",
     "false",
     "no",
@@ -51,6 +64,7 @@ def load_hardware_deadband():
         steer_left_min=STEER_LEFT_MIN,
         steer_right_min=STEER_RIGHT_MIN,
     )
+
 
 # Visual design (neuraflow-local-bridge / mavlink-bridge)
 

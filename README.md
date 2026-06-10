@@ -50,6 +50,8 @@ Environment variables (optional):
 | `GAMEPAD_STEER_SEND_STEP`     | `2`         | Min steer level change before sending (reduces jitter)                |
 | `GAMEPAD_LIGHTS_BUTTON`       | `BTN_NORTH` | evdev key code for cycle-lights (Xbox **Y**)                          |
 | `GAMEPAD_LIGHTS_DEBOUNCE_S`   | `0.25`      | Min seconds between gamepad lights commands                           |
+| `GAMEPAD_MACRO_DEBOUNCE_S`    | `0.25`      | Min seconds between gamepad D-pad movement triggers                   |
+| `MOVEMENTS_CONFIG`            | `movements.yaml` (next to app) | YAML/JSON file defining movement timelines and bindings      |
 
 Select a serial port in the GUI and click **Connect**. The bridge waits for the firmware `ready` event, reads `get_device_info` / `get_state`, then accepts commands.
 
@@ -100,6 +102,61 @@ Focus the bridge window, then:
 
 Disconnect or close the app sends neutral before closing the serial port.
 
+## Movement timelines (macros)
+
+Define reusable timed movement sequences in `movements.yaml` (see `movements.example.yaml`). Restart the bridge after editing steps or bindings.
+
+**Example** — full right, brief throttle pulse, then coast:
+
+```yaml
+movements:
+  turn_and_brief_throttle:
+    label: "Turn & Brief Throttle"
+    steps:
+      - steer: max_right
+      - wait_ms: 100
+      - throttle: 1
+      - wait_ms: 500
+      - throttle: 0
+    bindings:
+      gui: true
+      keyboard: "Key-1"
+      gamepad: "DPAD_RIGHT"
+```
+
+**Step types**
+
+| Step | Meaning |
+|------|---------|
+| `wait_ms: N` | Pause N milliseconds |
+| `steer: X` | Set steer level only |
+| `throttle: X` | Set throttle level only |
+| `set_controls: {steer_level?, throttle_level?}` | Set one or both axes |
+| `neutral` | Zero throttle and steer |
+| `brake` | Brake / reverse zone entry |
+| `cycle_lights` | Advance lights mode |
+
+**Level values** — raw protocol integers (e.g. `throttle: 1`) or aliases:
+
+- Steer: `max_right`, `max_left`, `center` / `neutral` / `0`
+- Throttle: `max_forward`, `max_reverse`, `brake`, `neutral` / `0`
+
+Aliases resolve using live firmware bounds from `get_device_info`.
+
+**Bindings**
+
+| Binding | Format |
+|---------|--------|
+| `gui: true` | Show a button in the MOVEMENTS panel |
+| `keyboard` | Tk bind sequence, e.g. `Key-1`, `F5` |
+| `gamepad` | `DPAD_UP/DOWN/LEFT/RIGHT`, face buttons `A`/`B`/`X`/`Y`, bumpers `LB`/`RB` (hat switch, digital D-pad, or evdev codes like `BTN_SOUTH`, `BTN_TL`) |
+
+**Behavior**
+
+- Only one macro runs at a time; triggering another replaces the current one.
+- Keyboard throttle/steer or gamepad analog input **cancels** the active macro immediately (car stays at the last macro step until you drive manually).
+- Macro triggers (GUI button, bound key, D-pad) work even while gamepad sticks/triggers are active.
+
 ## WebSocket protocol
 
 **Client → bridge (command):**
@@ -111,9 +168,35 @@ Disconnect or close the app sends neutral before closing the serial port.
 { "type": "command", "command": "brake", "params": {} }
 { "type": "command", "command": "throttle_step", "params": { "delta": 1 } }
 { "type": "command", "command": "steer_step", "params": { "delta": -1 } }
+{ "type": "command", "command": "run_movement", "params": { "movement_id": "turn_and_brief_throttle" } }
+{ "type": "command", "command": "cancel_movement", "params": {} }
 ```
 
 `throttle_step` / `steer_step` are bridge-only helpers (threshold-aware delta in protocol space; clamp to firmware bounds). `set_controls` accepts raw intent levels and applies hardware deadband remapping before serial output.
+
+**Bridge → client (hello, on connect):**
+
+```json
+{
+  "type": "hello",
+  "movements": [{ "id": "circle_right", "label": "Circle Right" }],
+  "timestamp": 1716220800000
+}
+```
+
+`movements` lists GUI-bound macros from `movements.yaml` (`bindings.gui: true`).
+
+**Bridge → client (movements, on reload):**
+
+```json
+{
+  "type": "movements",
+  "movements": [{ "id": "circle_right", "label": "Circle Right" }],
+  "timestamp": 1716220800000
+}
+```
+
+Sent when movements are reloaded (GUI ↻ button or startup) so web clients update macro buttons without reconnecting.
 
 **Bridge → client (status):**
 
@@ -127,6 +210,8 @@ Disconnect or close the app sends neutral before closing the serial port.
   "protocol": 2,
   "firmware": "1.1.0",
   "gamepadConnected": true,
+  "activeMovement": "Circle Right",
+  "movementRunning": false,
   "timestamp": 1716220800000
 }
 ```
@@ -147,13 +232,15 @@ Disconnect or close the app sends neutral before closing the serial port.
 
 See [`neuraflow-rc-car-remote-firmware/docs/serial-protocol.md`](../neuraflow-rc-car-remote-firmware/docs/serial-protocol.md) for protocol command reference, level semantics, and host brake/reverse guidance.
 
-## Nuxt integration (future)
+## Nuxt integration (neuraflow-web)
 
-When a web plugin is added:
+The web app connects via `layers/remote/app/plugins/rc-car-bridge.client.ts`. Set in neuraflow-web `.env`:
 
 ```
 PUBLIC_RC_CAR_BRIDGE_URL=ws://127.0.0.1:8801
 ```
+
+Open `/remote/car` in neuraflow-web. The config screen shows bridge connection status; start a session once the WebSocket is connected. Connect the car serial port in this bridge GUI before driving.
 
 ## Development
 

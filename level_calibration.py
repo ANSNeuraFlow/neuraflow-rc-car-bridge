@@ -15,11 +15,11 @@ class DeviceBoundsLike(Protocol):
 
 @dataclass(frozen=True)
 class HardwareDeadband:
+    throttle_forward_min: int
+    throttle_reverse_min: int
+    steer_left_min: int
+    steer_right_min: int
     enabled: bool = True
-    throttle_forward_min: int = 23
-    throttle_reverse_min: int = 29
-    steer_left_min: int = 30
-    steer_right_min: int = 30
 
 
 def _expand_positive(raw: int, min_eff: int, max_eff: int) -> int:
@@ -78,7 +78,9 @@ def calibrate_throttle_level(
         min_eff = min(deadband.throttle_forward_min, max_fwd)
         return min(_expand_positive(level, min_eff, max_fwd), max_fwd)
 
-    return max(_expand_negative(level, deadband.throttle_reverse_min, max_rev), -max_rev)
+    return max(
+        _expand_negative(level, deadband.throttle_reverse_min, max_rev), -max_rev
+    )
 
 
 def calibrate_steer_level(

@@ -31,6 +31,8 @@ class BridgeUiState:
     gamepad_name: str = ""
     gamepad_active: bool = False
     gamepad_enabled: bool = True
+    active_movement: str = ""
+    movement_running: bool = False
 
 
 @dataclass
@@ -79,6 +81,8 @@ class SharedRuntime:
                     "gamepad_name": self.ui.gamepad_name,
                     "gamepad_active": self.ui.gamepad_active,
                     "gamepad_enabled": self.ui.gamepad_enabled,
+                    "active_movement": self.ui.active_movement,
+                    "movement_running": self.ui.movement_running,
                 },
             }
 
@@ -92,4 +96,6 @@ class SharedRuntime:
                 "protocol": int(self.ui.protocol),
                 "firmware": str(self.ui.firmware),
                 "gamepadConnected": bool(self.ui.gamepad_connected),
+                "activeMovement": str(self.ui.active_movement),
+                "movementRunning": bool(self.ui.movement_running),
             }

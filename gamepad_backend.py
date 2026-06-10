@@ -8,7 +8,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from config import GAMEPAD_LIGHTS_BUTTON, GAMEPAD_LIGHTS_DEBOUNCE_S
+from config import GAMEPAD_LIGHTS_BUTTON, GAMEPAD_LIGHTS_DEBOUNCE_S, GAMEPAD_MACRO_DEBOUNCE_S
+from movement_timelines import event_code_to_binding
 from gamepad_mapping import (
     DEFAULT_STICK_CALIB,
     DEFAULT_TRIGGER_CALIB,
@@ -23,6 +24,8 @@ EnqueueFn = Callable[[str, dict[str, Any]], None]
 STEER_CODE = "ABS_X"
 LT_CODES = ("ABS_Z", "ABS_BRAKE")
 RT_CODES = ("ABS_RZ", "ABS_GAS")
+HAT_X_CODE = "ABS_HAT0X"
+HAT_Y_CODE = "ABS_HAT0Y"
 
 # Linux input.h axis codes
 _LINUX_ABS = {
@@ -126,6 +129,30 @@ def _apply_absolute(state: GamepadState, code: str, raw: int) -> None:
         state.rt = normalize_trigger_raw(raw, state.rt_calib)
 
 
+def _hat_to_dpad(code: str, raw: int) -> str | None:
+    if code == HAT_X_CODE and raw != 0:
+        return "DPAD_LEFT" if raw < 0 else "DPAD_RIGHT"
+    if code == HAT_Y_CODE and raw != 0:
+        return "DPAD_UP" if raw < 0 else "DPAD_DOWN"
+    return None
+
+
+def _try_trigger_movement(binding_code: str, *, now: float, last_fire_wall: float) -> float:
+    from backend import get_movement_bindings, trigger_movement
+
+    if (now - last_fire_wall) < GAMEPAD_MACRO_DEBOUNCE_S:
+        return last_fire_wall
+
+    bindings = get_movement_bindings()
+    movement_id = bindings.gamepad.get(binding_code)
+    if not movement_id:
+        return last_fire_wall
+
+    if trigger_movement(movement_id):
+        return now
+    return last_fire_wall
+
+
 def _should_fire_lights(
     *,
     pressed: bool,
@@ -189,6 +216,10 @@ def inputs_listener_loop(
 
     lights_was_down = False
     last_lights_wall = 0.0
+    last_macro_wall = 0.0
+    last_hat_x = 0
+    last_hat_y = 0
+    button_was_down: dict[str, bool] = {}
     was_connected = False
     calib_loaded = False
     permission_warned = False
@@ -241,14 +272,56 @@ def inputs_listener_loop(
 
         for event in events:
             if event.ev_type == "Absolute":
+                raw = int(event.state)
+                if event.code in (HAT_X_CODE, HAT_Y_CODE):
+                    prev = last_hat_x if event.code == HAT_X_CODE else last_hat_y
+                    if event.code == HAT_X_CODE:
+                        last_hat_x = raw
+                    else:
+                        last_hat_y = raw
+                    if raw != 0 and raw != prev:
+                        dpad = _hat_to_dpad(event.code, raw)
+                        if dpad is not None:
+                            now = time.monotonic()
+                            last_macro_wall = _try_trigger_movement(
+                                dpad,
+                                now=now,
+                                last_fire_wall=last_macro_wall,
+                            )
+                    continue
+
                 with state.lock:
-                    _apply_absolute(state, event.code, int(event.state))
+                    _apply_absolute(state, event.code, raw)
                 continue
 
-            if event.ev_type != "Key" or event.code != GAMEPAD_LIGHTS_BUTTON:
+            if event.ev_type != "Key":
                 continue
 
             now = time.monotonic()
+
+            binding_code = event_code_to_binding(event.code)
+            if binding_code is not None:
+                was_down = button_was_down.get(event.code, False)
+                fire, button_was_down[event.code], _ = _should_fire_lights(
+                    pressed=bool(event.state),
+                    was_down=was_down,
+                    last_fire_wall=last_macro_wall,
+                    now=now,
+                    debounce_s=GAMEPAD_MACRO_DEBOUNCE_S,
+                )
+                if fire:
+                    prev_wall = last_macro_wall
+                    last_macro_wall = _try_trigger_movement(
+                        binding_code,
+                        now=now,
+                        last_fire_wall=last_macro_wall,
+                    )
+                    if last_macro_wall != prev_wall:
+                        continue
+
+            if event.code != GAMEPAD_LIGHTS_BUTTON:
+                continue
+
             fire, lights_was_down, last_lights_wall = _should_fire_lights(
                 pressed=bool(event.state),
                 was_down=lights_was_down,

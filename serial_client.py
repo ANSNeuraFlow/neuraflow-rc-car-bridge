@@ -11,7 +11,10 @@ import serial
 
 import commands as rc_commands
 from config import HEARTBEAT_INTERVAL_S, STATUS_BROADCAST_HZ
+from movement_runner import handle_movement_command
 from serial_protocol import SerialSession
+
+_MOVEMENT_COMMANDS = frozenset({"run_movement", "cancel_movement"})
 
 LogFn = Callable[[str, str], None]
 EnqueueFn = Callable[[dict[str, Any]], None]
@@ -90,6 +93,52 @@ def _connect_serial(
     return ser
 
 
+def drain_movement_only_commands(
+    *,
+    inbound: queue.Queue,
+    enqueue_outbound: EnqueueFn,
+    log: LogFn,
+) -> None:
+    pending: list[dict[str, Any]] = []
+    try:
+        while True:
+            pending.append(dict(inbound.get_nowait()))
+    except queue.Empty:
+        pass
+
+    for item in pending:
+        if item.get("type") != "command":
+            inbound.put(item)
+            continue
+        name = str(item.get("command", ""))
+        if name not in _MOVEMENT_COMMANDS:
+            inbound.put(item)
+            continue
+        params = dict(item.get("params") or {})
+        log("info", f"CMD {name} params={params}")
+        try:
+            ok, label = handle_movement_command(name, params)
+            enqueue_outbound(
+                {
+                    "type": "command_ack",
+                    "command": label,
+                    "success": ok,
+                    "timestamp": int(time.time() * 1000),
+                }
+            )
+        except Exception as exc:
+            log("error", f"CMD FAILED {name}: {exc}")
+            enqueue_outbound(
+                {
+                    "type": "command_ack",
+                    "command": name,
+                    "success": False,
+                    "error": str(exc),
+                    "timestamp": int(time.time() * 1000),
+                }
+            )
+
+
 def drain_inbound_cmds(
     *,
     inbound: queue.Queue,
@@ -111,6 +160,18 @@ def drain_inbound_cmds(
             params = dict(item.get("params") or {})
             log("info", f"CMD {name} params={params}")
             try:
+                if name in _MOVEMENT_COMMANDS:
+                    ok, label = handle_movement_command(name, params)
+                    enqueue_outbound(
+                        {
+                            "type": "command_ack",
+                            "command": label,
+                            "success": ok,
+                            "timestamp": int(time.time() * 1000),
+                        }
+                    )
+                    continue
+
                 ok, label = rc_commands.apply_frontend_command(
                     runtime=runtime,
                     command=name,
@@ -217,6 +278,11 @@ def serial_worker_loop(
                 )
 
         if ser is None:
+            drain_movement_only_commands(
+                inbound=inbound_commands,
+                enqueue_outbound=enqueue_outbound,
+                log=log,
+            )
             stop_event.wait(0.05)
             continue
 

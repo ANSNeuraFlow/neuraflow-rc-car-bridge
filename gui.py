@@ -8,7 +8,18 @@ import time
 import customtkinter as ctk
 from serial.tools import list_ports
 
-from backend import enqueue_command, log_queue, request_connect, request_disconnect, runtime
+from backend import (
+    enqueue_command,
+    get_movement_bindings,
+    get_movement_runner,
+    log_queue,
+    reload_movements,
+    request_connect,
+    request_disconnect,
+    runtime,
+    trigger_movement,
+)
+from movement_runner import notify_manual_control
 from config import (
     ACCENT,
     ACCENT_DIM,
@@ -167,7 +178,9 @@ class App(ctk.CTk):
         self.minsize(860, 580)
         self.configure(fg_color=SURFACE)
         self._connected = False
+        self._macro_key_bindings: list[str] = []
         self._build_ui()
+        self._bind_movement_keys()
         self._bind_keys()
         self.focus_set()
         self._tick()
@@ -321,6 +334,52 @@ class App(ctk.CTk):
         grid.grid_columnconfigure(1, weight=1)
         grid.grid_columnconfigure(2, weight=1)
 
+        self._movements_frame = ctk.CTkFrame(
+            right, fg_color=CARD_BG, corner_radius=12, border_width=1, border_color=BTN_SECONDARY_BORDER
+        )
+        self._movements_frame.pack(fill="x", pady=(0, 10))
+        movements_header = ctk.CTkFrame(self._movements_frame, fg_color="transparent")
+        movements_header.pack(fill="x", padx=14, pady=(12, 4))
+        ctk.CTkLabel(
+            movements_header,
+            text="MOVEMENTS",
+            font=ctk.CTkFont(_F, 11, "bold"),
+            text_color=ON_SURFACE_DIM,
+        ).pack(side="left")
+        header_right = ctk.CTkFrame(movements_header, fg_color="transparent")
+        header_right.pack(side="right")
+        self._movement_status = ctk.CTkLabel(
+            header_right,
+            text="",
+            font=ctk.CTkFont(_F, 10),
+            text_color=ACCENT,
+        )
+        self._movement_status.pack(side="left", padx=(0, 6))
+        ctk.CTkButton(
+            header_right,
+            text="↻",
+            width=32,
+            height=28,
+            font=ctk.CTkFont(_F, 12),
+            fg_color=BTN_SECONDARY_FG,
+            hover_color=BTN_SECONDARY_HOVER,
+            text_color=ON_SURFACE,
+            corner_radius=BTN_RADIUS,
+            border_width=1,
+            border_color=BTN_SECONDARY_BORDER,
+            command=self._reload_movements,
+        ).pack(side="right")
+        self._movements_hint = ctk.CTkLabel(
+            self._movements_frame,
+            text="Define timelines in movements.yaml",
+            font=ctk.CTkFont(_F, 10),
+            text_color=ON_SURFACE_DIM,
+        )
+        self._movements_hint.pack(anchor="w", padx=14, pady=(0, 6))
+        self._movements_buttons = ctk.CTkFrame(self._movements_frame, fg_color="transparent")
+        self._movements_buttons.pack(fill="x", padx=10, pady=(0, 12))
+        self._build_movement_buttons()
+
         self._log_panel = LogPanel(right)
         self._log_panel.pack(fill="both", expand=True)
 
@@ -406,6 +465,61 @@ class App(ctk.CTk):
         self._connect_btn.configure(text="Disconnect")
         self._log_panel.add("info", f"Connecting to {port}...")
 
+    def _reload_movements(self) -> None:
+        ok = reload_movements()
+        self._bind_movement_keys()
+        self._build_movement_buttons()
+        if ok:
+            self._log_panel.add("ok", "Movements reloaded from movements.yaml")
+        else:
+            self._log_panel.add("warn", "Movements reload failed — check system log for details")
+
+    def _build_movement_buttons(self) -> None:
+        for child in self._movements_buttons.winfo_children():
+            child.destroy()
+
+        runner = get_movement_runner()
+        bindings = get_movement_bindings()
+        if runner is None or not bindings.gui:
+            self._movements_hint.configure(text="Define timelines in movements.yaml")
+            return
+
+        self._movements_hint.configure(text="Predefined movement macros")
+        catalog = runner.catalog
+        for movement_id in bindings.gui:
+            movement = catalog.movements.get(movement_id)
+            if movement is None:
+                continue
+            ctk.CTkButton(
+                self._movements_buttons,
+                text=movement.label,
+                height=32,
+                font=ctk.CTkFont(_F, 11),
+                fg_color=BTN_SECONDARY_FG,
+                hover_color=BTN_SECONDARY_HOVER,
+                text_color=ON_SURFACE,
+                corner_radius=BTN_RADIUS,
+                border_width=1,
+                border_color=BTN_SECONDARY_BORDER,
+                command=lambda mid=movement_id: self._trigger_movement(mid),
+            ).pack(side="left", padx=(0, 6), pady=2)
+
+    def _bind_movement_keys(self) -> None:
+        for seq in self._macro_key_bindings:
+            try:
+                self.unbind(seq)
+            except Exception:
+                pass
+        self._macro_key_bindings.clear()
+
+        bindings = get_movement_bindings()
+        for seq, movement_id in bindings.keyboard.items():
+            self.bind(seq, lambda _e, mid=movement_id: self._trigger_movement(mid))
+            self._macro_key_bindings.append(seq)
+
+    def _trigger_movement(self, movement_id: str) -> None:
+        trigger_movement(movement_id)
+
     def _bind_keys(self) -> None:
         self.bind("<Up>", lambda _e: self._key_step("throttle_step", 1))
         self.bind("<Down>", lambda _e: self._key_step("throttle_step", -1))
@@ -429,11 +543,13 @@ class App(ctk.CTk):
     def _key_step(self, command: str, delta: int) -> None:
         if not self._keyboard_allowed():
             return
+        notify_manual_control("keyboard")
         enqueue_command(command, {"delta": delta})
 
     def _key_command(self, command: str) -> None:
         if not self._keyboard_allowed():
             return
+        notify_manual_control("keyboard")
         enqueue_command(command, {})
 
     def _format_level(self, level: int) -> str:
@@ -494,6 +610,11 @@ class App(ctk.CTk):
         self._throttle_card.set(self._format_level(snap["throttle_level"]))
         self._steer_card.set(self._format_level(snap["steer_level"]))
         self._lights_card.set(snap["lights_mode"])
+
+        if ui.get("movement_running") and ui.get("active_movement"):
+            self._movement_status.configure(text=f"Running: {ui['active_movement']}")
+        else:
+            self._movement_status.configure(text="")
 
         port = self._port_combo.get().strip()
         self._footer_lbl.configure(

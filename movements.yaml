@@ -1,0 +1,92 @@
+movements:
+  full_left:
+    label: "Full Left"
+    steps:
+      - steer: max_left
+      - wait_ms: 1000
+      - steer: center
+    bindings:
+      gui: true
+
+  full_right:
+    label: "Full Right"
+    steps:
+      - steer: max_right
+      - wait_ms: 1000
+      - steer: center
+    bindings:
+      gui: true
+
+  turn_and_brief_throttle_right:
+    label: "Turn & Brief Throttle Right"
+    steps:
+      - steer: max_right
+      - wait_ms: 100
+      - throttle: 2
+      - wait_ms: 500
+      - throttle: -10
+      - wait_ms: 100
+      - steer: center
+      - throttle: 0
+    bindings:
+      gui: true
+      keyboard: "Key-1"
+      gamepad: "DPAD_RIGHT"
+
+  turn_and_brief_throttle_left:
+    label: "Turn & Brief Throttle Left"
+    steps:
+      - steer: max_left
+      - wait_ms: 100
+      - throttle: 2
+      - wait_ms: 500
+      - throttle: -10
+      - wait_ms: 100
+      - steer: center
+      - throttle: 0
+    bindings:
+      gui: true
+      keyboard: "Key-2"
+      gamepad: "DPAD_LEFT"
+
+  circle_right:
+    label: "Circle Right"
+    steps:
+      - steer: max_right
+      - wait_ms: 100
+      - throttle: 4
+      - wait_ms: 5200
+      - throttle: -10
+      - wait_ms: 100
+      - steer: center
+      - throttle: 0
+    bindings:
+      gui: true
+      keyboard: "Key-3"
+      gamepad: "DPAD_UP"
+
+  circle_left:
+    label: "Circle Left"
+    steps:
+      - steer: max_left
+      - wait_ms: 100
+      - throttle: 4
+      - wait_ms: 5200
+      - throttle: -10
+      - wait_ms: 100
+
+      - steer: center
+      - throttle: 0
+    bindings:
+      gui: true
+      keyboard: "Key-4"
+      gamepad: "DPAD_DOWN"
+
+  emergency_stop:
+    label: "Stop"
+    steps:
+      - neutral
+    bindings:
+      gui: true
+      keyboard: "Key-0"
+      gamepad: "B"
