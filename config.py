@@ -48,7 +48,7 @@ HARDWARE_DEADBAND_ENABLED = os.environ.get(
     "false",
     "no",
 )
-THROTTLE_FORWARD_MIN = int(os.environ.get("THROTTLE_FORWARD_MIN", "18"))
+THROTTLE_FORWARD_MIN = int(os.environ.get("THROTTLE_FORWARD_MIN", "23"))
 THROTTLE_REVERSE_MIN = int(os.environ.get("THROTTLE_REVERSE_MIN", "29"))
 STEER_LEFT_MIN = int(os.environ.get("STEER_LEFT_MIN", "30"))
 STEER_RIGHT_MIN = int(os.environ.get("STEER_RIGHT_MIN", "30"))
