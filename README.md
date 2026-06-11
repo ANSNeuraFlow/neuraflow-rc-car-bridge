@@ -55,7 +55,7 @@ Environment variables (optional):
 | `GAMEPAD_MACRO_DEBOUNCE_S`    | `0.25`      | Min seconds between gamepad D-pad movement triggers                   |
 | `MOVEMENTS_CONFIG`            | `movements.yaml` (next to app) | YAML/JSON file defining movement timelines and bindings      |
 
-Select a serial port in the GUI and click **Connect**. The bridge waits for the firmware `ready` event, reads `get_device_info` / `get_state`, then accepts commands.
+Select a serial port in the GUI and click **Connect**. The bridge sends `get_device_info` / `get_state` to handshake, then accepts commands.
 
 ### Hardware deadband vs gamepad deadzone
 

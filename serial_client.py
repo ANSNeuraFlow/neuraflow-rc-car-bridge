@@ -69,15 +69,18 @@ def _connect_serial(
     ser.dtr = True
     ser.rts = False
 
-    log("info", "Waiting for ready event...")
-    ready = session.wait_for_ready(ser, timeout_s=6.0, log=log)
-    if ready:
-        log("ok", f"RC car ready: {ready.get('data')}")
-    else:
-        log("warn", "No ready event (continuing)")
+    log("info", "Handshaking with device...")
+    info: dict[str, Any] | None = None
+    for attempt in range(3):
+        try:
+            info = session.send_command(ser, "get_device_info", {}, timeout_s=2.0, log=log)
+            break
+        except TimeoutError:
+            if attempt == 2:
+                raise
+            time.sleep(0.5)
 
-    info = session.send_command(ser, "get_device_info", {}, log=log)
-    if info.get("status") != "ok":
+    if info is None or info.get("status") != "ok":
         raise RuntimeError(f"get_device_info failed: {info}")
     _apply_device_info(runtime, info)
     log("ok", f"Device firmware {info.get('firmware')} protocol {info.get('protocol')}")

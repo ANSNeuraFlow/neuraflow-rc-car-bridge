@@ -103,24 +103,6 @@ class SerialSession:
 
         return messages
 
-    def wait_for_ready(
-        self,
-        ser: serial.Serial,
-        timeout_s: float = 6.0,
-        log: LogFn | None = None,
-    ) -> dict[str, Any] | None:
-        deadline = time.time() + timeout_s
-
-        while time.time() < deadline:
-            for event in self.read_lines(
-                ser, timeout_s=0.3, accept_events=True, accept_responses=False, log=log
-            ):
-                if event.get("event") == "ready":
-                    return event
-            time.sleep(0.05)
-
-        return None
-
     def send_command(
         self,
         ser: serial.Serial,
